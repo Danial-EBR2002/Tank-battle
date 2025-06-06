@@ -140,3 +140,27 @@ Refer to the docstrings and parameter comments for full details on each argument
 2. Create a feature branch (`git checkout -b feature/MyStrategy`)
 3. Commit your changes (`git commit -m "Add new agent strategy"`)
 4. Push (`git push origin feature/MyStrategy`) and open a Pull Request
+---
+
+## Additional Game Rules and Agent Considerations
+
+### 🔫 Shooting Rules
+- A tank can **shoot without moving**, as long as it has turned toward the target.
+- **Shots do not pass through walls.** If a wall is between you and the enemy, your shot will stop.
+- Power-up items like `DOUBLE_SHOT` or `DOUBLE_DAMAGE` are **consumed after one use**, even if the shot misses.
+
+### 👁️ Visibility & Item Detection
+- Tanks can only see enemies, walls, and items that are within their **VIEW_RANGE = 2** Manhattan distance.
+- Items outside this range are **not visible** and cannot be picked up.
+
+### 🧱 Being Stuck
+- If a tank fails to move for **more than 2 consecutive turns**, it will automatically attempt to move in a random valid direction to escape being stuck.
+- This happens regardless of the agent’s decision.
+
+### 📦 Item Pickup Effects
+- `DOUBLE_SHOT`: Your next shot has zero cooldown. Consumed after one shot.
+- `DOUBLE_DAMAGE`: Your next successful shot gives +2 points. Consumed on use.
+- `DOUBLE_COOLDOWN`: Sets cooldown to 8 instead of 4 for the next shot. Consumed on use.
+- `MINUS_ONE`: Picking this up **reduces your score by 1**.
+
+---
