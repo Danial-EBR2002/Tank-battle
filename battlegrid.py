@@ -211,15 +211,29 @@ class Game:
             x1, y1, x2, y2 = self.safe_zone
             width  = x2 - x1 + 1
             height = y2 - y1 + 1
+
+            # Compute the new dimensions, but don’t let it shrink below 6×6
             new_w = max(width  - 2, 6)
             new_h = max(height - 2, 6)
-            cx = random.randint(new_w//2, GRID_SIZE-1 - new_w//2)
-            cy = random.randint(new_h//2, GRID_SIZE-1 - new_h//2)
-            nx1 = cx - new_w//2
-            ny1 = cy - new_h//2
+
+            # Determine the valid range for the new center so the new zone stays inside the old one
+            cx_min = x1 + new_w // 2
+            cx_max = x2 - new_w // 2
+            cy_min = y1 + new_h // 2
+            cy_max = y2 - new_h // 2
+
+            # Pick a random center within those bounds
+            cx = random.randint(cx_min, cx_max)
+            cy = random.randint(cy_min, cy_max)
+
+            # Recompute the new zone’s corners based on that center
+            nx1 = cx - new_w // 2
+            ny1 = cy - new_h // 2
             nx2 = nx1 + new_w - 1
             ny2 = ny1 + new_h - 1
+
             self.safe_zone = (nx1, ny1, nx2, ny2)
+
 
 
     def generate_items(self):
