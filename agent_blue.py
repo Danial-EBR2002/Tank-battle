@@ -21,16 +21,16 @@ class AgentBlue:
 
         # --- NEW: Pursue nearest item hint ---
         if item_hints:
-            # compute approximate centers of each hint-rectangle
+            # Compute approximate centers of each hint-rectangle
             targets = []
-            for (x1, y1, x2, y2) in item_hints:
+            for (x1, y1, x2, y2, _) in item_hints:  # Fixed: unpack 5 elements including item type
                 cx = (x1 + x2) // 2
                 cy = (y1 + y2) // 2
                 targets.append((cx, cy))
-            # choose the closest by Manhattan distance
+            # Choose the closest by Manhattan distance
             targets.sort(key=lambda p: abs(p[0]-tank.x) + abs(p[1]-tank.y))
             goal = targets[0]
-            # pathfind
+            # Pathfinding toward the goal
             path = self.astar(my_pos, goal, walls, GRID_SIZE, DIRECTIONS)
             if path:
                 next_cell = path[0]
@@ -39,8 +39,8 @@ class AgentBlue:
                     if (ddx, ddy) == (dx, dy):
                         return d, False
 
+        # If outside the safe zone, move toward its center
         x1, y1, x2, y2 = safe_zone
-        # if outside safe zone, move back toward center
         if not (x1 <= tank.x <= x2 and y1 <= tank.y <= y2):
             center = ((x1 + x2) // 2, (y1 + y2) // 2)
             path = self.astar(my_pos, center, walls, GRID_SIZE, DIRECTIONS)
@@ -76,7 +76,7 @@ class AgentBlue:
                     direction = 'RIGHT' if dx > 0 else 'LEFT'
                 return direction, True
             else:
-                # Avoid enemy → Move perpendicular
+                # Avoid enemy by moving perpendicular
                 threat_dir = (dx // max(1, abs(dx)), dy // max(1, abs(dy)))
                 escape_dirs = [
                     d for d, (ddx, ddy) in DIRECTIONS.items()
@@ -85,7 +85,7 @@ class AgentBlue:
                 if escape_dirs:
                     return random.choice(escape_dirs), False
 
-        # --- Strategic Movement when no enemy seen ---
+        # --- Strategic Movement when no enemy is visible ---
         min_x, max_x, min_y, max_y = enemy_area
         goal = ((min_x + max_x) // 2, (min_y + max_y) // 2)
         path = self.astar(my_pos, goal, walls, GRID_SIZE, DIRECTIONS)
@@ -96,7 +96,7 @@ class AgentBlue:
                 if (ddx, ddy) == (dx, dy):
                     return d, False
 
-        # Fallback
+        # Fallback: try random direction
         fallback_dirs = ['UP', 'DOWN', 'LEFT', 'RIGHT']
         random.shuffle(fallback_dirs)
         for d in fallback_dirs:
@@ -109,7 +109,6 @@ class AgentBlue:
 
     @staticmethod
     def astar(start, goal, walls, grid_size, directions):
-        import heapq
         def heuristic(a, b):
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
