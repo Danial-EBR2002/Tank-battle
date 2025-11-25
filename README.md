@@ -29,8 +29,8 @@ Below is a line-by-line explanation of the core game logic in `battlegrid.py`. T
 
 4. **Lines 15–18:**
    - Sets game parameters:
-     - `VIEW_RANGE = 2` (visibility radius in cells)
-     - `SHOOT_RANGE = 3` (maximum firing distance)
+     - `VIEW_RANGE = 5` (visibility radius in cells)
+     - `SHOOT_RANGE = 5` (maximum firing distance)
      - `MAX_TURNS = 300` (turn limit)
      - `FPS = 200` (ticks per second).
 
