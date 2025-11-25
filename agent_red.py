@@ -1,133 +1,145 @@
-# agent_red.py
 import random
-import math
+from collections import deque
+from typing import List, Tuple, Optional, Set
+
+GRID_SIZE = 15
+VIEW_RANGE = 5
+SHOOT_RANGE = 5
+MIN_DIST = 3  # فاصله اجباری جدید
+
+DIRECTIONS = {
+    'UP':    (0, -1),
+    'DOWN':  (0, 1),
+    'LEFT':  (-1, 0),
+    'RIGHT': (1, 0),
+}
+DIR_KEYS = list(DIRECTIONS.keys())
+POSITIVE_ITEMS = {'DOUBLE_DAMAGE', 'DOUBLE_SHOT', 'DOUBLE_COOLDOWN'}
+
+def manhattan(a, b):
+    return abs(a[0]-b[0]) + abs(a[1]-b[1])
 
 class AgentRed:
-    """
-    Defensive AgentRed + item pursuit:
-    - Pursues nearest item hint first.
-    - Uses potential‑field navigation.
-    - Retreats when vulnerable (enemy in sight but cooldown active).
-    - Avoids open space when uncertain.
-    """
     def __init__(self, name="Red"):
         self.name = name
+        self.known_walls: Set[Tuple[int, int]] = set()
+        self.path: deque = deque()
+        self.goal: Optional[Tuple[int, int]] = None
+
+    def _safe_dist(self, cell, enemy):
+        if not enemy:
+            return True
+        return manhattan(cell, enemy) >= MIN_DIST
 
     def decide(self, tank, visible_enemy, visible_walls, enemy_area, safe_zone, item_hints):
-        """Return (direction, shoot_flag) each turn.
-        Args:
-            tank:      Our Tank object.
-            visible_enemy: (x,y) or None.
-            visible_walls: list[(x,y)] within VIEW_RANGE.
-            enemy_area: (min_x,max_x,min_y,max_y) likely enemy region.
-            safe_zone: 4‑tuple bounding current safe zone.
-            item_hints: list of (x1,y1,x2,y2,type) rectangles; we ignore type.
-        """
-        from battlegrid import DIRECTIONS, GRID_SIZE
-
-        walls = set(visible_walls)
-        my_pos = (tank.x, tank.y)
-
-        # 1) Pursue nearest item hint --------------------------------------
-        if item_hints:
-            targets = []
-            # FIX: unpack 5‑element tuple, ignore last (item type)
-            for (x1, y1, x2, y2, _) in item_hints:
-                cx = (x1 + x2) // 2
-                cy = (y1 + y2) // 2
-                targets.append((cx, cy))
-            # Choose closest target (Manhattan)
-            targets.sort(key=lambda p: abs(p[0]-tank.x) + abs(p[1]-tank.y))
-            goal = targets[0]
-            # Greedy step toward goal
-            best_move, best_dist = None, float('inf')
-            for direction, (dx, dy) in DIRECTIONS.items():
-                nx, ny = tank.x + dx, tank.y + dy
-                if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE and (nx, ny) not in walls:
-                    dist = abs(nx - goal[0]) + abs(ny - goal[1])
-                    if dist < best_dist:
-                        best_dist = dist
-                        best_move = direction
-            if best_move:
-                return best_move, False
-
-        # 2) Return to safe zone if outside --------------------------------
+        self.known_walls.update(visible_walls)
+        cur = (tank.x, tank.y)
         x1, y1, x2, y2 = safe_zone
-        if not (x1 <= tank.x <= x2 and y1 <= tank.y <= y2):
-            tx, ty = (x1 + x2) // 2, (y1 + y2) // 2
-            best_move, best_dist = None, float('inf')
-            for direction, (dx, dy) in DIRECTIONS.items():
-                nx, ny = tank.x + dx, tank.y + dy
-                if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE and (nx, ny) not in walls:
-                    dist = abs(nx - tx) + abs(ny - ty)
-                    if dist < best_dist:
-                        best_dist, best_move = dist, direction
-            if best_move:
-                return best_move, False
 
-        # 3) Engage or evade enemy ----------------------------------------
+        inside = lambda p: x1 <= p[0] <= x2 and y1 <= p[1] <= y2
+
+        # خروجی از زون → برگشت
+        if not inside(cur):
+            self.goal = self._nearest_inside(cur, safe_zone)
+            self.path = deque(self._bfs(cur, self.goal, safe_zone, visible_enemy))
+
+        # دشمن دیده می‌شود
         if visible_enemy:
-            ex, ey = visible_enemy
-            dx, dy = ex - tank.x, ey - tank.y
-            can_shoot = False
-            # Same row
-            if tank.x == ex:
-                step = 1 if ey > tank.y else -1
-                if all((tank.x, y) not in walls for y in range(tank.y + step, ey, step)):
-                    can_shoot = True
-            # Same column
-            elif tank.y == ey:
-                step = 1 if ex > tank.x else -1
-                if all((x, tank.y) not in walls for x in range(tank.x + step, ex, step)):
-                    can_shoot = True
-
-            if can_shoot and tank.shoot_cooldown == 0:
-                # Face enemy & shoot
-                if dx == 0:
-                    direction = 'DOWN' if dy > 0 else 'UP'
-                else:
-                    direction = 'RIGHT' if dx > 0 else 'LEFT'
-                return direction, True
+            if manhattan(cur, visible_enemy) < MIN_DIST:
+                escape_point = self._escape_point(cur, visible_enemy, safe_zone)
+                self.path = deque(self._bfs(cur, escape_point, safe_zone, visible_enemy))
             else:
-                # No clear shot → flee opposite / perpendicular
-                threat_vec = (dx // max(1, abs(dx)), dy // max(1, abs(dy)))
-                escape_dirs = [d for d,(ddx,ddy) in DIRECTIONS.items()
-                               if (ddx,ddy) != threat_vec and (tank.x+ddx, tank.y+ddy) not in walls]
-                if escape_dirs:
-                    return random.choice(escape_dirs), False
+                aligned, shoot_dir, d_e = self._line_of_fire(cur, visible_enemy)
+                if aligned and d_e <= SHOOT_RANGE:
+                    return shoot_dir, True
+                self.goal = visible_enemy
+                self.path = deque(self._bfs(cur, self.goal, safe_zone, visible_enemy))
+        else:
+            items = []
+            for x3, y3, x4, y4, t in item_hints:
+                if t in POSITIVE_ITEMS:
+                    cx, cy = (x3+x4)//2, (y3+y4)//2
+                    if inside((cx, cy)):
+                        items.append((cx, cy))
 
-        # 4) Potential‑field navigation toward enemy area center ----------
-        min_x, max_x, min_y, max_y = enemy_area
-        tx, ty = (min_x + max_x)//2, (min_y + max_y)//2
-        best_move, best_potential = None, float('inf')
-        for direction, (dx, dy) in DIRECTIONS.items():
-            nx, ny = tank.x + dx, tank.y + dy
-            if not (0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE) or (nx, ny) in walls:
-                continue
-            # Attractive term: distance to target center
-            att = abs(nx - tx) + abs(ny - ty)
-            # Repulsive term: close walls
-            rep = sum(1.0/(math.hypot(nx-wx, ny-wy)**2)
-                      for wx,wy in walls if 0 < math.hypot(nx-wx, ny-wy) <= 3)
-            # Risk penalty: open spaces when enemy unseen
-            open_cnt = 0
-            if not visible_enemy:
-                for ddx,ddy in DIRECTIONS.values():
-                    sx,sy = nx+ddx, ny+ddy
-                    if 0 <= sx < GRID_SIZE and 0 <= sy < GRID_SIZE and (sx,sy) not in walls:
-                        open_cnt += 1
-            risk = open_cnt * 0.1
-            total = att + 2.0*rep + risk + random.uniform(0, 0.1)
-            if total < best_potential:
-                best_potential, best_move = total, direction
-        if best_move:
-            return best_move, False
+            if items:
+                items.sort(key=lambda p: manhattan(cur, p))
+                self.goal = items[0]
+            else:
+                cx, cy = ((x1+x2)//2, (y1+y2)//2)
+                self.goal = (cx, cy)
 
-        # 5) Fallback random move ----------------------------------------
-        for d in random.sample(list(DIRECTIONS.keys()), k=4):
-            dx, dy = DIRECTIONS[d]
-            nx, ny = tank.x + dx, tank.y + dy
-            if 0 <= nx < GRID_SIZE and 0 <= ny < GRID_SIZE and (nx, ny) not in walls:
-                return d, False
+            self.path = deque(self._bfs(cur, self.goal, safe_zone, visible_enemy))
 
-        return 'STAY', False
+        direction = tank.facing
+        if self.path:
+            nxt = self.path.popleft()
+            direction = self._dir_to(cur, nxt)
+
+        # دوباره check شلیک
+        if visible_enemy:
+            aligned, shoot_dir, d_e = self._line_of_fire(cur, visible_enemy)
+            if aligned and d_e <= SHOOT_RANGE:
+                return shoot_dir, True
+
+        return direction, False
+
+    def _nearest_inside(self, p, safe):
+        x, y = p; x1, y1, x2, y2 = safe
+        return (min(max(x, x1), x2), min(max(y, y1), y2))
+
+    def _line_of_fire(self, src, dst):
+        sx, sy = src; dx, dy = dst
+        if sx == dx:
+            return True, ('DOWN' if dy > sy else 'UP'), abs(dy - sy)
+        if sy == dy:
+            return True, ('RIGHT' if dx > sx else 'LEFT'), abs(dx - sx)
+        return False, 'UP', 99
+
+    def _dir_to(self, src, dst):
+        sx, sy = src; dx, dy = dst
+        if dx > sx: return 'RIGHT'
+        if dx < sx: return 'LEFT'
+        if dy > sy: return 'DOWN'
+        return 'UP'
+
+    def _escape_point(self, cur, enemy, safe):
+        x1, y1, x2, y2 = safe
+        corners = [(x1,y1), (x1,y2), (x2,y1), (x2,y2)]
+        return max(corners, key=lambda c: manhattan(c, enemy))
+
+    def _bfs(self, start, goal, safe, enemy):
+        x1, y1, x2, y2 = safe
+        q = deque([start])
+        parent = {start: None}
+
+        while q:
+            cur = q.popleft()
+            if cur == goal:
+                break
+            for d in DIR_KEYS:
+                dx, dy = DIRECTIONS[d]
+                nx, ny = cur[0]+dx, cur[1]+dy
+                cell = (nx, ny)
+
+                if cell in parent:
+                    continue
+                if not (0<=nx<GRID_SIZE and 0<=ny<GRID_SIZE):
+                    continue
+                if cell in self.known_walls:
+                    continue
+                if not (x1<=nx<=x2 and y1<=ny<=y2):
+                    continue
+                if not self._safe_dist(cell, enemy):
+                    continue
+
+                parent[cell] = cur
+                q.append(cell)
+
+        # reconstruct
+        path = []
+        node = goal
+        while node and node in parent and node != start:
+            path.append(node)
+            node = parent[node]
+        return list(reversed(path))

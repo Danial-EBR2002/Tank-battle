@@ -19,10 +19,10 @@ GRID_SIZE   = 15
 CELL_SIZE   = 60
 WIDTH = HEIGHT = GRID_SIZE * CELL_SIZE
 
-VIEW_RANGE   = 2
-SHOOT_RANGE  = 3
-MAX_TURNS    = 300
-FPS          = 200
+VIEW_RANGE   = 5
+SHOOT_RANGE  = 5
+MAX_TURNS    = 1000
+FPS          = 20
 
 WHITE = (255, 255, 255)
 FONT = pygame.font.SysFont(None, 36)
@@ -281,7 +281,11 @@ class Game:
 
     def _can_move(self, x, y):
         return 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE and (x, y) not in self.walls
-
+    
+    def _is_far_enough(self, x, y, enemy_tank):
+        # Manhattan distance ≥ 3
+         return abs(x - enemy_tank.x) + abs(y - enemy_tank.y) >= 3
+     
     def _take_action(self, agent, tank, enemy_tank, enemy_area):
         # visibility
         visible_enemy = (enemy_tank.x, enemy_tank.y) if is_visible(tank, enemy_tank.x, enemy_tank.y) else None
@@ -299,7 +303,7 @@ class Game:
         moved = False
         dx, dy = DIRECTIONS[tank.facing]
         nx, ny = tank.x+dx, tank.y+dy
-        if not rotated and self._can_move(nx, ny) and (nx, ny) != (enemy_tank.x, enemy_tank.y):
+        if (not rotated and self._can_move(nx, ny) and self._is_far_enough(nx, ny, enemy_tank)):            
             tank.x, tank.y = nx, ny
             moved = True
         if not moved:
@@ -308,7 +312,8 @@ class Game:
                 dirs = list(DIRECTIONS.keys()); random.shuffle(dirs)
                 for d in dirs:
                     dx, dy = DIRECTIONS[d]
-                    if self._can_move(nx:=tank.x+dx, ny:=tank.y+dy) and (nx, ny) != (enemy_tank.x, enemy_tank.y):
+                    if self._can_move(nx:=tank.x+dx, ny:=tank.y+dy) \
+                        and self._is_far_enough(nx, ny, enemy_tank):
                         tank.desired_direction = d; tank.rotate(); tank.x, tank.y = nx, ny
                         tank.stay_counter = 0; break
         else:
